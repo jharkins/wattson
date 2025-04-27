@@ -1,0 +1,16 @@
+# .dockerignore
+.git
+.gitignore
+.dockerignore
+node_modules
+npm-debug.log
+Dockerfile
+README.md
+LICENSE
+*.log
+
+# IMPORTANT: Exclude environment file and database from the image itself
+.env
+stats.db
+# If you move stats.db into a data directory:
+data/ 

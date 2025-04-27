@@ -11,10 +11,12 @@ const CLOSER_ROLE_ID = '1365381444511338516';
 const SETTER_ROLE_ID = '1365387228007763988';
 const ALLOWED_ROLES = [ADMIN_ROLE_ID, MANAGER_ROLE_ID, CLOSER_ROLE_ID, SETTER_ROLE_ID];
 
-// Database setup (consider moving to a shared module)
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
+// --- Database setup ---
+const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'stats.db'); // Point to ../data/
 const db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE, (err) => {
-    if (err) console.error('Error opening database for set command:', err.message);
+    // Optional: Add error logging specific to this command if needed, 
+    // but primary connection handled in index.js
+    if (err) console.error('[SetCmd] Error opening database:', err.message);
 });
 
 // Helper to run DB queries with promises

@@ -10,9 +10,9 @@ const CLOSER_ROLE_ID = '1365381444511338516';
 const ALLOWED_ROLES = [ADMIN_ROLE_ID, MANAGER_ROLE_ID, CLOSER_ROLE_ID];
 
 // Database setup (consider moving to a shared module)
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
+const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'stats.db');
 const db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE, (err) => {
-    if (err) console.error('Error opening database for install command:', err.message);
+    if (err) console.error('[InstallCmd] Error opening database:', err.message);
 });
 
 // Helper to run DB queries with promises

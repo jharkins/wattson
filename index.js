@@ -9,13 +9,20 @@ const sqlite3 = require('sqlite3').verbose();
 
 // ---------- config ----------------------------------------------------------
 const TOKEN          = process.env.DISCORD_TOKEN;                 // Discord bot token
-const CHANNEL_NAME   = process.env.SETS_CHANNEL || 'sets-and-closes'; // Keep for messageCreate for now
-const DB_FILE        = process.env.DB_FILE || path.join(__dirname, 'stats.db');
+// REMOVE: const CHANNEL_NAME   = process.env.SETS_CHANNEL || 'sets-and-closes'; // Keep for messageCreate for now
+const DB_FILE        = process.env.DB_FILE || path.join(__dirname, 'data', 'stats.db'); // Default to data/stats.db
 
 // ---------- database  -------------------------------------------------------
 // TODO: Consider moving DB setup to its own module and potentially passing the
 //       `db` instance to commands via interaction.client.db
-const db = new sqlite3.Database(DB_FILE);
+const db = new sqlite3.Database(DB_FILE, (err) => { // Add error handling for initial connection
+    if (err) {
+        console.error('[DB Init] Error opening database:', DB_FILE, err.message);
+        process.exit(1); // Exit if DB can't be opened
+    } else {
+        console.log('[DB Init] Successfully connected to database:', DB_FILE);
+    }
+});
 db.serialize(() => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (

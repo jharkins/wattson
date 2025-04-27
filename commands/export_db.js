@@ -5,7 +5,7 @@ const { DateTime } = require('luxon'); // For timestamp in filename
 const { PermissionLevels, checkPermission } = require('../utils/permissions.js'); // Require the permission checker
 
 // --- Config --- 
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
+const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'stats.db');
 // REMOVE: const ALLOWED_USER_IDS = ...
 
 // --- Role IDs for Permissions ---

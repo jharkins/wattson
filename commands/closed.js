@@ -4,9 +4,9 @@ const path = require('node:path');
 const { PermissionLevels, checkPermission } = require('../utils/permissions.js'); // Require the permission checker
 
 // --- Database setup ---
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
+const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'stats.db');
 const db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE, (err) => {
-    if (err) console.error('Error opening database for closed command:', err.message);
+    if (err) console.error('[ClosedCmd] Error opening database:', err.message);
 });
 
 // Helper to run DB queries with promises
