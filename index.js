@@ -12,13 +12,6 @@ const TOKEN          = process.env.DISCORD_TOKEN;                 // Discord bot
 const CHANNEL_NAME   = process.env.SETS_CHANNEL || 'sets-and-closes'; // Keep for messageCreate for now
 const DB_FILE        = process.env.DB_FILE || path.join(__dirname, 'stats.db');
 
-const KEYWORDS = [
-  { re: /set with bill/i,          type: 'set_with_bill' },
-  { re: /set no bill/i,            type: 'set_no_bill'  },
-  { re: /closed/i,                 type: 'closed'       },
-  { re: /installation scheduled/i, type: 'install_sched'}
-];
-
 // ---------- database  -------------------------------------------------------
 // TODO: Consider moving DB setup to its own module and potentially passing the
 //       `db` instance to commands via interaction.client.db
@@ -27,19 +20,34 @@ db.serialize(() => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      user TEXT NOT NULL,
-      message_id TEXT NOT NULL,
-      channel_id TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      type TEXT NOT NULL,                      -- 'set', 'closed', 'install_sched'
+      user TEXT NOT NULL,                      -- User ID of the person who ran the command
+      message_id TEXT,                         -- Message ID of the announcement message (optional)
+      channel_id TEXT,                         -- Channel ID where command was run
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- Timestamp of the event logging
+      customer_name TEXT,
+      set_date DATE,                           -- Date the 'set' occurred (YYYY-MM-DD)
+      has_bill BOOLEAN,
+      system_size REAL,                        -- System size in kW for 'closed'
+      setter_id TEXT                           -- User ID of the setter for 'closed' and 'install_sched'
     );
   `);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (type, created_at);`); // Add index
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);`);       // Add index
+  // Indices
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (type, created_at);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_type_set_date ON events (type, set_date);`); // Index for set date
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_setter_id ON events (setter_id);`);         // Index for setter
 
   // Add columns if they don't exist (for existing databases)
-  db.exec(`ALTER TABLE events ADD COLUMN message_id TEXT`, () => {});
-  db.exec(`ALTER TABLE events ADD COLUMN channel_id TEXT`, () => {});
+  // Note: ALTER TABLE ADD COLUMN might fail silently if column exists in some sqlite versions,
+  // or throw an error in others. Wrapping in exec with empty callback handles common cases.
+  db.exec(`ALTER TABLE events ADD COLUMN customer_name TEXT`, () => {});
+  db.exec(`ALTER TABLE events ADD COLUMN set_date DATE`, () => {});
+  db.exec(`ALTER TABLE events ADD COLUMN has_bill BOOLEAN`, () => {});
+  db.exec(`ALTER TABLE events ADD COLUMN system_size REAL`, () => {});
+  db.exec(`ALTER TABLE events ADD COLUMN setter_id TEXT`, () => {});
+  // REMOVE: db.exec(`ALTER TABLE events ADD COLUMN message_id TEXT`, () => {}); // Keep message_id if needed? Let's keep it.
+  // REMOVE: db.exec(`ALTER TABLE events ADD COLUMN channel_id TEXT`, () => {}); // Keep channel_id
 });
 
 // ---------- discord client --------------------------------------------------
@@ -104,44 +112,6 @@ client.once(Events.ClientReady, async () => { // Use Events enum
       console.error('❌ Error during bulk command registration:', error);
   }
 });
-
-// ---------- message listener (remains largely the same for now) -----------
-client.on(Events.MessageCreate, async (msg) => { // Use Events enum
-  if (msg.author.bot) return;                            // ignore bots
-
-  // TODO: Implement GUILD_CONFIGS for channel names
-  if (msg.channel.name?.toLowerCase() !== CHANNEL_NAME.toLowerCase()) return;
-
-  console.log(`[MSG][${msg.guild?.name || 'DM'}] ${msg.author.tag}: ${msg.content}`);
-
-  // keyword detection
-  const hit = KEYWORDS.find(k => k.re.test(msg.content));
-  if (!hit) return;
-
-  // log + DB insert
-  console.log(`→ matched keyword: ${hit.type}`);
-  try {
-    // Using a Promise wrapper for db.run to handle async/await and errors
-    await new Promise((resolve, reject) => {
-      db.run('INSERT INTO events(type, user, message_id, channel_id) VALUES (?, ?, ?, ?)',
-        [hit.type, msg.author.id, msg.id, msg.channel.id],
-        function(err) { // Use function() to access `this` if needed, though not used here
-          if (err) {
-            console.error('DB Insert Error:', err.message);
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-    });
-    // react ✅ only if DB insert succeeds
-    await msg.react('✅');
-  } catch (dbError) {
-      // DB error already logged, maybe notify channel/user?
-      try { await msg.react('❌'); } catch (_) { /* Ignore reaction error */ }
-  }
-});
-
 
 // ---------- Interaction Handler (Command Execution) -----------
 client.on(Events.InteractionCreate, async interaction => { // Use Events enum

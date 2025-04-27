@@ -5,30 +5,25 @@ module.exports = {
         .setName('help')
         .setDescription('Shows information about the Wattson bot and its commands.'),
     async execute(interaction) {
+        // Log who used the command
+        console.log(`[Help] Command used by ${interaction.user.tag} (${interaction.user.id}) in channel ${interaction.channel.id}`);
+
         const commandList = interaction.client.commands;
 
         // Format commands
         let commandString = 'No commands found.';
         if (commandList && commandList.size > 0) {
-             commandString = commandList.map(cmd => `**/${cmd.data.name}**: ${cmd.data.description}`).join('\n');
+             commandString = commandList
+                .map(cmd => `**/${cmd.data.name}**: ${cmd.data.description}`)
+                .join('\n');
         }
-
-        // Hardcoded examples
-        const examplesString = `
-- "Just got a **set with bill** from Jane D."
-- "Woohoo! Another **closed** deal!"
-- "Just finished scheduling, **installation scheduled** for next Tuesday."
-- "Got a **set no bill** lead, following up."
-        `.trim();
 
         const helpEmbed = new EmbedBuilder()
             .setTitle('🤖 Wattson Help')
-            .setDescription('I track stats posted in specific channels for Zeo Energy.')
+            .setDescription('I track sets, closes, and installations for Zeo Energy via slash commands.')
             .setColor(0x5865F2) // Discord blurple
             .addFields(
-                { name: 'Commands', value: commandString },
-                { name: 'Tracking Keywords', value: `I listen for keywords in messages in the configured channel. Examples include:` },
-                { name: 'Examples', value: examplesString }
+                { name: 'Available Commands', value: commandString }
                 // TODO: Add guild-specific channel info here if GUILD_CONFIGS is implemented
             )
             .setTimestamp();
