@@ -2,6 +2,14 @@ const { SlashCommandBuilder, EmbedBuilder, MessageFlags, AttachmentBuilder } = r
 const sqlite3 = require('sqlite3').verbose();
 const path = require('node:path');
 const { DateTime } = require('luxon'); // Require luxon
+const { PermissionLevels, checkPermission } = require('../utils/permissions.js'); // Require the permission checker
+
+// --- Role IDs for Permissions ---
+const ADMIN_ROLE_ID = '1365873523393822811';
+const MANAGER_ROLE_ID = '1365387565464555673';
+const CLOSER_ROLE_ID = '1365381444511338516';
+const SETTER_ROLE_ID = '1365387228007763988';
+const ALLOWED_ROLES = [ADMIN_ROLE_ID, MANAGER_ROLE_ID, CLOSER_ROLE_ID, SETTER_ROLE_ID];
 
 // Database setup (consider moving to a shared module)
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
@@ -74,6 +82,16 @@ module.exports = {
                 .setRequired(false)),
 
     async execute(interaction) {
+        // --- Permission Check (Refactored) ---
+        if (!checkPermission(interaction.member, PermissionLevels.CanSetStatsHelp)) { // Use the checkPermission function
+            console.log(`[Set] Denied access for user ${interaction.user.tag} (${interaction.user.id}) - Missing required role.`);
+            return interaction.reply({ 
+                content: '⛔ You do not have permission to use this command.', 
+                flags: MessageFlags.Ephemeral 
+            });
+        }
+        console.log(`[Set] Authorized access for user ${interaction.user.tag}`);
+
         const customerName = interaction.options.getString('customer_name');
         const dateInputString = interaction.options.getString('date');
         const billAttachment = interaction.options.getAttachment('bill_image');
@@ -106,37 +124,62 @@ module.exports = {
             }
         }
 
+        let insertedRowId = null; // Variable to hold the DB row ID
+
         try {
-            await run(
+            // Step 1: Insert the event record, get the row ID
+            const insertResult = await run(
                 `INSERT INTO events (type, user, channel_id, customer_name, set_date, has_bill)
                  VALUES (?, ?, ?, ?, ?, ?)`, 
-                ['set', user.id, channel.id, customerName, setDate, hasBill]
+                ['set', user.id, channel.id, customerName, setDate, hasBill] 
             );
+            insertedRowId = insertResult.lastID; // Get the ID of the inserted row
+            console.log(`[CMD][Set] Inserted row ID: ${insertedRowId}`);
 
-            console.log(`[CMD][Set] ${user.tag} recorded set for ${customerName} on ${setDate}. Bill: ${hasBill}`);
-
+            // Step 2: Prepare and send the confirmation embed
             const finalDescription = `${user} just recorded a new set!${dateWarning}${attachmentWarning}`;
-
             const embed = new EmbedBuilder()
-                .setColor(hasBill ? 0x57F287 : 0xFAA61A)
+                .setColor(hasBill ? 0x57F287 : 0xFAA61A) 
                 .setTitle('✅ New Set Recorded!')
                 .setDescription(finalDescription.trim())
                 .addFields(
                     { name: 'Customer', value: customerName, inline: true },
-                    { name: 'Date', value: displayDate, inline: true },
+                    { name: 'Date', value: displayDate, inline: true }, 
                     { name: 'Bill Included', value: hasBill ? 'Yes (Image Attached)' : 'No', inline: true }
                 )
                 .setTimestamp();
-
+                
             if (hasBill && billAttachment) {
-                embed.setImage(billAttachment.url);
+                 embed.setImage(billAttachment.url);
             }
 
-            await interaction.reply({ embeds: [embed] });
+            // Send reply and wait for the Message object
+            const replyMessage = await interaction.reply({ embeds: [embed], fetchReply: true }); // Use fetchReply: true
+            const replyMessageId = replyMessage.id;
+
+            console.log(`[CMD][Set] Reply message ID: ${replyMessageId}`);
+
+            // Step 3: Update the DB record with the message ID
+            await run(
+                `UPDATE events SET message_id = ? WHERE id = ?`,
+                [replyMessageId, insertedRowId]
+            );
+            console.log(`[CMD][Set] Updated row ID ${insertedRowId} with message ID ${replyMessageId}`);
 
         } catch (error) {
             console.error('Error executing /set command:', error);
-            await interaction.reply({ content: 'There was an error while recording this set.', flags: MessageFlags.Ephemeral });
+            // Attempt to clean up DB row if insert succeeded but reply/update failed?
+            if (insertedRowId) {
+                console.warn(`[CMD][Set] Error occurred after inserting row ID ${insertedRowId}. Attempting cleanup...`);
+                // Could potentially delete the row here if desired: await run(`DELETE FROM events WHERE id = ?`, [insertedRowId]);
+            }
+            // Send ephemeral error
+            // Check if already replied/deferred (shouldn't be possible here, but good practice)
+            if (interaction.replied || interaction.deferred) {
+                 await interaction.followUp({ content: 'There was an error while recording this set.', flags: MessageFlags.Ephemeral });
+            } else {
+                 await interaction.reply({ content: 'There was an error while recording this set.', flags: MessageFlags.Ephemeral });
+            }
         }
     },
 }; 

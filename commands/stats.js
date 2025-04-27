@@ -1,8 +1,9 @@
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('node:path');
+const { PermissionLevels, checkPermission } = require('../utils/permissions.js'); // Require the permission checker
 
-// Database setup - reuse connection or pass from client if refactored
+// --- Database setup ---
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
 const db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READONLY, (err) => { // Open read-only is sufficient here
     if (err) console.error('Error opening database for stats command:', err.message);
@@ -18,6 +19,16 @@ module.exports = {
         .setName('stats')
         .setDescription('Show daily / weekly / monthly sales stats'),
     async execute(interaction) {
+        // --- Permission Check (Refactored) ---
+        if (!checkPermission(interaction.member, PermissionLevels.CanSetStatsHelp)) { // Use the checkPermission function
+            console.log(`[Stats] Denied access for user ${interaction.user.tag} (${interaction.user.id}) - Missing required role.`);
+            return interaction.reply({ 
+                content: '⛔ You do not have permission to use this command.', 
+                flags: MessageFlags.Ephemeral 
+            });
+        }
+        console.log(`[Stats] Authorized access for user ${interaction.user.tag}`);
+
         try {
             const todayDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
@@ -64,34 +75,32 @@ module.exports = {
                 leaderboardString = leaderboardData
                     .map((row, index) => {
                         const member = members[index];
-                        // Use user for lookup now
                         const userName = member ? member.displayName : `Unknown User (${row.user.substring(0, 6)}...)`;
-                        // Adjust emoji/label for Sets by Setter
-                        return `${userName}: ${row.count} sets`; // Changed label
+                        // Use 🔅 emoji for leaderboard entries
+                        return `${userName}: ${row.count} 🔅`; 
                     })
                     .join('\n');
             } else {
-                // Adjust message
                 leaderboardString = 'No sets logged yet today!';
             }
 
-            // --- Build the Embed --- Updated Title/Description
+            // --- Build the Embed --- Add Emojis!
             const embed = new EmbedBuilder()
                 .setTitle('📈 Wattson Stats 📊')
                 .setDescription(`**Daily Leaderboard (Sets Logged Today)**
+⚔️💣💥
 ${leaderboardString}
----`) // Updated leaderboard title
+---`) // Add emojis to leaderboard header
                 .setColor(0x00AE86)
                 .addFields(
-                    // Updated field names/values
-                    { name: 'Sets Sched. Today', value: String(dailySets), inline: true },
-                    { name: 'Closes (7d)', value: String(weeklyCloses), inline: true },
-                    { name: 'Closes (MTD)', value: String(monthlyCloses), inline: true },
-                    { name: 'Installs (MTD)', value: String(monthlyInstalls), inline: true }
+                    // Add emojis to field names
+                    { name: 'Sets Sched. Today 📝', value: String(dailySets), inline: true }, 
+                    { name: 'Closes (7d) 💣', value: String(weeklyCloses), inline: true },
+                    { name: 'Closes (MTD) 🥵', value: String(monthlyCloses), inline: true }, 
+                    { name: 'Installs (MTD) ✨', value: String(monthlyInstalls), inline: true }
                 )
                 .setTimestamp();
 
-            // Respond to the interaction
             await interaction.reply({ embeds: [embed] });
 
         } catch (error) {

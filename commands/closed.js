@@ -1,8 +1,9 @@
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('node:path');
+const { PermissionLevels, checkPermission } = require('../utils/permissions.js'); // Require the permission checker
 
-// Database setup (consider moving to a shared module)
+// --- Database setup ---
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'stats.db');
 const db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE, (err) => {
     if (err) console.error('Error opening database for closed command:', err.message);
@@ -34,21 +35,35 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction) {
+        // --- Permission Check (Refactored) ---
+        if (!checkPermission(interaction.member, PermissionLevels.CanCloseOrInstall)) { // Use the checkPermission function
+            console.log(`[Closed] Denied access for user ${interaction.user.tag} (${interaction.user.id}) - Missing required role.`);
+            return interaction.reply({ 
+                content: '⛔ You do not have permission to use this command.', 
+                flags: MessageFlags.Ephemeral 
+            });
+        }
+        console.log(`[Closed] Authorized access for user ${interaction.user.tag}`);
+
         const customerName = interaction.options.getString('customer_name');
         const systemSize = interaction.options.getNumber('system_size');
         const setterUser = interaction.options.getUser('setter');
         const user = interaction.user; // The user who ran the command (the closer)
         const channel = interaction.channel;
+        
+        let insertedRowId = null;
 
         try {
-            await run(
+            // Step 1: Insert event, get row ID
+            const insertResult = await run(
                 `INSERT INTO events (type, user, channel_id, customer_name, system_size, setter_id)
                  VALUES (?, ?, ?, ?, ?, ?)`,
                 ['closed', user.id, channel.id, customerName, systemSize, setterUser.id]
             );
+            insertedRowId = insertResult.lastID;
+            console.log(`[CMD][Closed] Inserted row ID: ${insertedRowId}`);
 
-            console.log(`[CMD][Closed] ${user.tag} recorded close for ${customerName} (Setter: ${setterUser.tag}, Size: ${systemSize}kW)`);
-
+            // Step 2: Prepare and send embed
             const embed = new EmbedBuilder()
                 .setColor(0xED4245) // Red
                 .setTitle('💣 Deal Closed!')
@@ -60,13 +75,29 @@ module.exports = {
                 )
                 .setTimestamp();
 
-            // Send confirmation to the channel
-            await interaction.reply({ embeds: [embed] });
+            // Send reply and fetch Message object
+            const replyMessage = await interaction.reply({ embeds: [embed], fetchReply: true });
+            const replyMessageId = replyMessage.id;
+            console.log(`[CMD][Closed] Reply message ID: ${replyMessageId}`);
+
+            // Step 3: Update DB with message ID
+            await run(
+                `UPDATE events SET message_id = ? WHERE id = ?`,
+                [replyMessageId, insertedRowId]
+            );
+            console.log(`[CMD][Closed] Updated row ID ${insertedRowId} with message ID ${replyMessageId}`);
 
         } catch (error) {
             console.error('Error executing /closed command:', error);
-            // Use flags for ephemeral reply
-            await interaction.reply({ content: 'There was an error while recording this closed deal.', flags: MessageFlags.Ephemeral });
+            if (insertedRowId) {
+                 console.warn(`[CMD][Closed] Error occurred after inserting row ID ${insertedRowId}.`);
+            }
+            // Send ephemeral error
+            if (interaction.replied || interaction.deferred) {
+                 await interaction.followUp({ content: 'There was an error while recording this closed deal.', flags: MessageFlags.Ephemeral });
+            } else {
+                 await interaction.reply({ content: 'There was an error while recording this closed deal.', flags: MessageFlags.Ephemeral });
+            }
         }
     },
 }; 
