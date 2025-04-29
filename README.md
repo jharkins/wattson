@@ -76,7 +76,44 @@ This method is suitable for local development or testing.
 *   Stop: `docker stop wattson`
 *   Start: `docker start wattson`
 *   Remove container (after stopping): `docker rm wattson`
-*   Update: Pull changes, rebuild image (`docker build ...`), stop/remove old container, run new container.
+
+#### Updating the Bot
+
+When you have new code changes (e.g., after pulling from Git), follow these steps to update the running bot:
+
+1.  **Navigate to the project directory:**
+    ```bash
+    cd /path/to/wattson # Replace with your actual project path
+    ```
+2.  **Pull the latest code changes:** (If using Git)
+    ```bash
+    git pull origin main # Or your default branch
+    ```
+3.  **Stop the currently running container:**
+    ```bash
+    docker stop wattson
+    ```
+4.  **(Optional but Recommended) Remove the old container:** This prevents potential conflicts and keeps things clean.
+    ```bash
+    docker rm wattson
+    ```
+5.  **Rebuild the Docker image with the new code:**
+    ```bash
+    docker build -t wattson-bot .
+    ```
+6.  **Run a new container with the updated image:** (Ensure your `.env` file is up-to-date and the `data` directory exists)
+    ```bash
+    docker run -d \
+      --name wattson \
+      --restart=unless-stopped \
+      --env-file ./.env \
+      -v $(pwd)/data:/usr/src/app/data \
+      wattson-bot
+    ```
+7.  **(Optional) Prune old images:** To save disk space, you can periodically remove unused Docker images.
+    ```bash
+    docker image prune -f
+    ```
 
 ---
 

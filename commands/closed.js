@@ -75,8 +75,10 @@ module.exports = {
                 )
                 .setTimestamp();
 
-            // Send reply and fetch Message object
-            const replyMessage = await interaction.reply({ embeds: [embed], fetchReply: true });
+            // Send reply first
+            await interaction.reply({ embeds: [embed] });
+            // Then fetch the Message object
+            const replyMessage = await interaction.fetchReply();
             const replyMessageId = replyMessage.id;
             console.log(`[CMD][Closed] Reply message ID: ${replyMessageId}`);
 

@@ -194,13 +194,13 @@ module.exports = {
                  embed.setImage(billAttachment.url);
             }
 
-            // Send reply and wait for the Message object
-            const replyMessage = await interaction.reply({ embeds: [embed], fetchReply: true });
+            // Step 3: Reply and Update DB
+            // Send reply first
+            await interaction.reply({ embeds: [embed] }); 
+            // Then fetch the Message object
+            const replyMessage = await interaction.fetchReply(); 
             const replyMessageId = replyMessage.id;
-
-            console.log(`[CMD][Set] Reply message ID: ${replyMessageId}`);
-
-            // Step 3: Update the DB record with the message ID
+            // Update DB with message ID
             await run(
                 `UPDATE events SET message_id = ? WHERE id = ?`,
                 [replyMessageId, insertedRowId]
