@@ -3,6 +3,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('node:path');
 const { DateTime } = require('luxon'); // For timestamp in filename
 const { PermissionLevels, checkPermission } = require('../utils/permissions.js'); // Require the permission checker
+const { fetchUsernames } = require('../utils/user_utils.js'); // Import from new location
 
 // --- Config --- 
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'stats.db');
@@ -36,38 +37,62 @@ const escapeCsvValue = (value) => {
     return stringValue;
 };
 
-// --- User Fetching Helper ---
-async function fetchUsernames(interaction, userIds) {
-    const usernameMap = new Map();
-    const uniqueIds = [...new Set(userIds.filter(id => id))]; // Filter out null/empty IDs
+/**
+ * Generates the database export data as a CSV AttachmentBuilder object.
+ * @param {import('discord.js').CommandInteraction | import('discord.js').ButtonInteraction} interaction - The interaction object (used for fetching usernames).
+ * @returns {Promise<{attachment: import('discord.js').AttachmentBuilder | null, error: Error | null}>} - An object containing the attachment or an error.
+ */
+async function generateExportData(interaction) {
+    try {
+        // --- Fetch Data ---
+        const dbColumns = [
+            'id', 'type', 'user', 'message_id', 'channel_id', 'created_at',
+            'customer_name', 'set_date', 'has_bill', 'system_size', 'setter_id'
+        ];
+        const rows = await query(`SELECT ${dbColumns.join(', ')} FROM events ORDER BY id ASC`); // Order by ID asc
 
-    console.log(`[ExportDB] Attempting to fetch usernames for ${uniqueIds.length} unique IDs.`);
-
-    const fetchPromises = uniqueIds.map(async (id) => {
-        try {
-            // Prefer fetching guild member for display name, fallback to client user for tag
-            const member = await interaction.guild?.members.fetch(id).catch(() => null);
-            if (member) {
-                usernameMap.set(id, member.displayName); 
-            } else {
-                const user = await interaction.client.users.fetch(id).catch(() => null);
-                if (user) {
-                    usernameMap.set(id, user.tag);
-                } else {
-                    usernameMap.set(id, '(Unknown User)');
-                    console.warn(`[ExportDB] Could not fetch user/member for ID: ${id}`);
-                }
-            }
-        } catch (error) {
-            // Log specific errors if needed, but generally catch and mark as unknown
-            console.error(`[ExportDB] Error fetching user ${id}:`, error.message);
-            usernameMap.set(id, '(Error Fetching)');
+        if (!rows || rows.length === 0) {
+             console.log('[ExportDB:Generate] Database is empty.');
+            // Return a specific indicator or error maybe?
+            return { attachment: null, error: new Error('Database is empty.') }; 
         }
-    });
 
-    await Promise.all(fetchPromises);
-    console.log(`[ExportDB] Finished fetching usernames. Found ${usernameMap.size} mappings.`);
-    return usernameMap;
+        // --- Fetch Usernames ---
+        const userIdsToFetch = rows.flatMap(row => [row.user, row.setter_id]);
+        const usernameMap = await fetchUsernames(interaction, userIdsToFetch);
+
+        // --- Convert to CSV ---
+        const csvColumns = [
+            'id', 'type', 'user', 'user_name', 'message_id', 'channel_id', 'created_at',
+            'customer_name', 'set_date', 'has_bill', 'system_size', 'setter_id', 'setter_name'
+        ];
+        const headerRow = csvColumns.map(escapeCsvValue).join(',');
+        const dataRows = rows.map(row => {
+            return csvColumns.map(col => {
+                let value;
+                switch (col) {
+                    case 'user_name': value = usernameMap.get(row.user) || ''; break;
+                    case 'setter_name': value = usernameMap.get(row.setter_id) || ''; break;
+                    case 'has_bill': value = row[col] ? 1 : 0; break;
+                    default: value = row[col]; break;
+                }
+                return escapeCsvValue(value);
+            }).join(',');
+        });
+        const csvString = [headerRow, ...dataRows].join('\n');
+
+        // --- Create Attachment ---
+        const timestamp = DateTime.now().toFormat('yyyyMMdd_HHmmss');
+        const filename = `wattson_export_${timestamp}.csv`;
+        const attachment = new AttachmentBuilder(Buffer.from(csvString), { name: filename });
+
+        console.log(`[ExportDB:Generate] Successfully generated CSV data.`);
+        return { attachment, error: null };
+
+    } catch (error) {
+        console.error('[ExportDB:Generate] Error generating export data:', error);
+        return { attachment: null, error };
+    }
 }
 
 // --- Command --- 
@@ -90,73 +115,26 @@ module.exports = {
         console.log(`[ExportDB] Authorized access for user ${interaction.user.tag} via role.`);
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-        try {
-            // --- Fetch Data ---
-            // Define explicit column order for CSV consistency
-            const columns = [
-                'id', 'type', 'user', 'message_id', 'channel_id', 'created_at', 
-                'customer_name', 'set_date', 'has_bill', 'system_size', 'setter_id'
-            ];
-            const rows = await query(`SELECT ${columns.join(', ')} FROM events ORDER BY created_at ASC`);
+        const { attachment, error } = await generateExportData(interaction);
 
-            if (!rows || rows.length === 0) {
-                return interaction.followUp({ content: 'Database is empty.', flags: MessageFlags.Ephemeral });
-            }
-
-            // --- Fetch Usernames ---
-            const userIdsToFetch = rows.flatMap(row => [row.user, row.setter_id]);
-            const usernameMap = await fetchUsernames(interaction, userIdsToFetch);
-
-            // --- Convert to CSV --- 
-            // Define CSV columns, including new username columns
-            const csvColumns = [
-                'id', 'type', 'user', 'user_name', 'message_id', 'channel_id', 'created_at',
-                'customer_name', 'set_date', 'has_bill', 'system_size', 'setter_id', 'setter_name'
-            ];
-            const headerRow = csvColumns.map(escapeCsvValue).join(',');
-
-            const dataRows = rows.map(row => {
-                return csvColumns.map(col => {
-                    let value;
-                    switch (col) {
-                        case 'user_name':
-                            value = usernameMap.get(row.user) || ''; // Get username from map
-                            break;
-                        case 'setter_name':
-                            value = usernameMap.get(row.setter_id) || ''; // Get setter name from map
-                            break;
-                        case 'has_bill':
-                            value = row[col] ? 1 : 0; // Convert boolean
-                            break;
-                        default:
-                            value = row[col]; // Get value from DB row
-                            break;
-                    }
-                    return escapeCsvValue(value);
-                }).join(',');
-            });
-
-            const csvString = [headerRow, ...dataRows].join('\n');
-
-            // --- Create Attachment ---
-            const timestamp = DateTime.now().toFormat('yyyyMMdd_HHmmss');
-            const filename = `wattson_export_${timestamp}.csv`;
-            const attachment = new AttachmentBuilder(Buffer.from(csvString), { name: filename });
-
-            // --- Send Ephemeral Reply ---
+        if (attachment) {
             await interaction.followUp({
                 content: '📊 Here is the database export (with usernames):',
                 files: [attachment],
                 flags: MessageFlags.Ephemeral
             });
-            console.log(`[ExportDB] Sent CSV export with usernames to ${interaction.user.tag}`);
-
-        } catch (error) {
-            console.error('[ExportDB] Error executing command:', error);
+            console.log(`[ExportDB] Sent CSV export to ${interaction.user.tag}`);
+        } else {
+            let errorMessage = '❌ An error occurred while generating the database export.';
+            if (error && error.message === 'Database is empty.') {
+                 errorMessage = 'ℹ️ The database is currently empty. Nothing to export.';
+            }
             await interaction.followUp({
-                content: '❌ An error occurred while generating the database export.',
+                content: errorMessage,
                 flags: MessageFlags.Ephemeral
             });
         }
     },
+    // Export the helper function for use in other commands
+    generateExportData 
 };  
