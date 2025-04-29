@@ -33,7 +33,7 @@ db.serialize(() => {
       channel_id TEXT,                         -- Channel ID where command was run
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- Timestamp of the event logging
       customer_name TEXT,
-      set_date DATE,                           -- Date the 'set' occurred (YYYY-MM-DD)
+      set_date DATETIME,                         -- Date & Time the 'set' appointment is scheduled for (ISO8601)
       has_bill BOOLEAN,
       system_size REAL,                        -- System size in kW for 'closed'
       setter_id TEXT                           -- User ID of the setter for 'closed' and 'install_sched'
@@ -42,14 +42,14 @@ db.serialize(() => {
   // Indices
   db.exec(`CREATE INDEX IF NOT EXISTS idx_events_type_created ON events (type, created_at);`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_events_created ON events (created_at);`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_type_set_date ON events (type, set_date);`); // Index for set date
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_setter_id ON events (setter_id);`);         // Index for setter
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_set_date ON events (set_date);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_events_setter_id ON events (setter_id);`);
 
   // Add columns if they don't exist (for existing databases)
   // Note: ALTER TABLE ADD COLUMN might fail silently if column exists in some sqlite versions,
   // or throw an error in others. Wrapping in exec with empty callback handles common cases.
   db.exec(`ALTER TABLE events ADD COLUMN customer_name TEXT`, () => {});
-  db.exec(`ALTER TABLE events ADD COLUMN set_date DATE`, () => {});
+  db.exec(`ALTER TABLE events ADD COLUMN set_date DATETIME`, () => {});
   db.exec(`ALTER TABLE events ADD COLUMN has_bill BOOLEAN`, () => {});
   db.exec(`ALTER TABLE events ADD COLUMN system_size REAL`, () => {});
   db.exec(`ALTER TABLE events ADD COLUMN setter_id TEXT`, () => {});

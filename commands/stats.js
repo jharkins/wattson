@@ -32,9 +32,10 @@ module.exports = {
         try {
             const todayDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-            // --- Calculate Summary Stats --- Use set_date for daily sets
+            // --- Calculate Summary Stats ---
+            // Update query to use DATE() function on set_date column
             const dailySets = await query(
-                `SELECT COUNT(*) AS n FROM events WHERE type = 'set' AND set_date = ?`,
+                `SELECT COUNT(*) AS n FROM events WHERE type = 'set' AND DATE(set_date) = ?`,
                 [todayDate]
             ).then(rows => rows[0]?.n || 0);
 

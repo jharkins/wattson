@@ -27,56 +27,90 @@ const run = (sql, params = []) => new Promise((res, rej) =>
     })
 );
 
-// --- Date Parsing Logic using Luxon --- 
+// --- Date/Time Parsing Logic using Luxon --- 
 
 /**
- * Parses MM/DD or MM/DD/YY (and variations like M/D or M/D/YY) into YYYY-MM-DD.
- * Assumes current year for MM/DD.
- * Returns YYYY-MM-DD string or null if invalid.
+ * Parses date and optional time inputs into an ISO8601 DateTime string.
+ * Accepted date formats: MM/DD, MM/DD/YY, YYYY-MM-DD
+ * Accepted time formats: HH:MM (24hr), H:MM AM/PM, HH:MM AM/PM
+ * Assumes current year for MM/DD date.
+ * Defaults time to 00:00:00 if not provided or invalid.
+ * Returns YYYY-MM-DDTHH:mm:ss.SSSZ string or null if date is invalid.
  */
-const parseDateInputLuxon = (dateString) => {
+const parseDateTimeInput = (dateString, timeString) => {
     if (!dateString) return null;
 
-    let dt;
-
-    // Try MM/DD/YY (or M/D/YY etc.) first
-    dt = DateTime.fromFormat(dateString, 'M/d/yy');
-
-    if (!dt.isValid) {
-        // Try MM/DD (or M/D etc.), assuming current year
-        dt = DateTime.fromFormat(dateString, 'M/d');
-        if (dt.isValid) {
-            // Set the year to the current year explicitly
-            dt = dt.set({ year: DateTime.now().year });
-            // Check if the resulting date is in the future compared to *today* (Luxon defaults to earliest possible time)
-            // If a user types 1/1 and it's currently 12/31, it should likely be *next* year's 1/1.
-            // However, for simplicity, we'll stick to current year or the specified YY.
-            // A more complex logic could check if the M/D date is significantly *before* today and assume next year.
+    let datePart;
+    // Try parsing the date part first
+    datePart = DateTime.fromFormat(dateString, 'M/d/yy');
+    if (!datePart.isValid) {
+        datePart = DateTime.fromFormat(dateString, 'M/d');
+        if (datePart.isValid) {
+            datePart = datePart.set({ year: DateTime.now().year });
         } else {
-          // Try YYYY-MM-DD as a fallback
-          dt = DateTime.fromFormat(dateString, 'yyyy-MM-dd');
+            datePart = DateTime.fromFormat(dateString, 'yyyy-MM-dd');
         }
     }
 
-    if (!dt.isValid) {
-        return null; // Invalid format
+    // If date part is still invalid, return null
+    if (!datePart.isValid) {
+        return null;
     }
 
-    // Format to YYYY-MM-DD
-    return dt.toISODate(); // Returns 'YYYY-MM-DD'
+    // Default time part (start of the day)
+    let timePart = { hour: 0, minute: 0, second: 0, millisecond: 0 }; 
+    let timeParsedSuccessfully = false;
+
+    // If time string is provided, try parsing it
+    if (timeString) {
+        let parsedTime;
+        // Try formats like 1:30 PM, 14:30
+        parsedTime = DateTime.fromFormat(timeString, 'h:mm a');
+        if (!parsedTime.isValid) {
+             parsedTime = DateTime.fromFormat(timeString, 'hh:mm a'); // e.g. 02:30 PM
+        }
+        if (!parsedTime.isValid) {
+             parsedTime = DateTime.fromFormat(timeString, 'HH:mm'); // e.g. 14:30
+        }
+        // Add more formats if needed (e.g., 'H:mm')
+
+        if (parsedTime.isValid) {
+            timePart = { 
+                hour: parsedTime.hour,
+                minute: parsedTime.minute,
+                second: 0, // Default seconds to 0
+                millisecond: 0
+            };
+            timeParsedSuccessfully = true;
+        }
+    }
+
+    // Combine date and time parts
+    const finalDateTime = datePart.set(timePart);
+
+    // Return the combined DateTime as an ISO string (includes timezone offset)
+    // Using .toISO() is generally better for storing specific moments.
+    return {
+        isoString: finalDateTime.toISO(), // e.g., 2024-07-05T14:30:00.000-04:00
+        timeParsed: timeParsedSuccessfully
+    };
 };
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('set')
-        .setDescription('Records a new customer set.')
+        .setDescription('Records a new customer set appointment.')
         .addStringOption(option =>
             option.setName('customer_name')
                 .setDescription('The name of the customer.')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('date')
-                .setDescription('Date of set (MM/DD, MM/DD/YY, YYYY-MM-DD). Defaults to today.')
+                .setDescription('Date of appointment (MM/DD, MM/DD/YY, YYYY-MM-DD).')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('time')
+                .setDescription('Time of appointment (e.g., 2:30 PM, 14:30). Defaults to start of day.')
                 .setRequired(false))
         .addAttachmentOption(option =>
             option.setName('bill_image')
@@ -96,24 +130,29 @@ module.exports = {
 
         const customerName = interaction.options.getString('customer_name');
         const dateInputString = interaction.options.getString('date');
+        const timeInputString = interaction.options.getString('time');
         const billAttachment = interaction.options.getAttachment('bill_image');
         const user = interaction.user;
         const channel = interaction.channel;
 
-        let setDate = DateTime.now().toISODate();
-        let displayDate = DateTime.now().toFormat('MM/dd/yy');
-        let dateWarning = '';
+        let setDateTimeISO = null;
+        let displayDateTime = 'Date/Time TBD';
+        let dateTimeWarning = '';
         let attachmentWarning = '';
         let hasBill = false;
 
-        if (dateInputString) {
-            const parsedDate = parseDateInputLuxon(dateInputString);
-            if (parsedDate) {
-                setDate = parsedDate;
-                displayDate = DateTime.fromISO(parsedDate).toFormat('MM/dd/yy'); 
-            } else {
-                dateWarning = `\n⚠️ Invalid date format: \'${dateInputString}\'. Using today (${displayDate}). Please use MM/DD, MM/DD/YY, or YYYY-MM-DD.`;
+        const parsedResult = parseDateTimeInput(dateInputString, timeInputString);
+
+        if (parsedResult) {
+            setDateTimeISO = parsedResult.isoString;
+            displayDateTime = DateTime.fromISO(setDateTimeISO).toFormat('MM/dd/yy hh:mm a'); 
+            if (timeInputString && !parsedResult.timeParsed) {
+                dateTimeWarning = `\n⚠️ Invalid time format: '${timeInputString}'. Used default time (00:00).`;
             }
+        } else {
+            dateTimeWarning = `\n⚠️ Invalid date format: '${dateInputString}'. Could not record set.`;
+            console.error(`[Set] Invalid date format provided: ${dateInputString}`);
+            return interaction.reply({ content: `Invalid date format provided: '${dateInputString}'. Please use MM/DD, MM/DD/YY, or YYYY-MM-DD.`, flags: MessageFlags.Ephemeral });
         }
 
         if (billAttachment) {
@@ -121,32 +160,32 @@ module.exports = {
                 hasBill = true;
                 console.log(`[CMD][Set] Bill image attached: ${billAttachment.url}`);
             } else {
-                attachmentWarning = `\n⚠️ Attached file \'${billAttachment.name}\' is not an image. Recording as 'No Bill'.`;
+                attachmentWarning = `\n⚠️ Attached file '${billAttachment.name}' is not an image. Recording as 'No Bill'.`;
                 console.log(`[CMD][Set] Non-image file attached, treating as no bill: ${billAttachment.name}`);
             }
         }
 
-        let insertedRowId = null; // Variable to hold the DB row ID
+        let insertedRowId = null;
 
         try {
             // Step 1: Insert the event record, get the row ID
             const insertResult = await run(
                 `INSERT INTO events (type, user, channel_id, customer_name, set_date, has_bill)
                  VALUES (?, ?, ?, ?, ?, ?)`, 
-                ['set', user.id, channel.id, customerName, setDate, hasBill] 
+                ['set', user.id, channel.id, customerName, setDateTimeISO, hasBill] 
             );
-            insertedRowId = insertResult.lastID; // Get the ID of the inserted row
+            insertedRowId = insertResult.lastID;
             console.log(`[CMD][Set] Inserted row ID: ${insertedRowId}`);
 
             // Step 2: Prepare and send the confirmation embed
-            const finalDescription = `${user} just recorded a new set!${dateWarning}${attachmentWarning}`;
+            const finalDescription = `${user} just recorded a new set!${dateTimeWarning}${attachmentWarning}`;
             const embed = new EmbedBuilder()
                 .setColor(hasBill ? 0x57F287 : 0xFAA61A) 
                 .setTitle('✅ New Set Recorded!')
                 .setDescription(finalDescription.trim())
                 .addFields(
                     { name: 'Customer', value: customerName, inline: true },
-                    { name: 'Date', value: displayDate, inline: true }, 
+                    { name: 'Appt Time', value: displayDateTime, inline: true },
                     { name: 'Bill Included', value: hasBill ? 'Yes (Image Attached)' : 'No', inline: true }
                 )
                 .setTimestamp();
@@ -156,7 +195,7 @@ module.exports = {
             }
 
             // Send reply and wait for the Message object
-            const replyMessage = await interaction.reply({ embeds: [embed], fetchReply: true }); // Use fetchReply: true
+            const replyMessage = await interaction.reply({ embeds: [embed], fetchReply: true });
             const replyMessageId = replyMessage.id;
 
             console.log(`[CMD][Set] Reply message ID: ${replyMessageId}`);

@@ -80,6 +80,33 @@ This method is suitable for local development or testing.
 
 ---
 
+## Developer Notes
+
+### Project Structure
+
+*   **`index.js`**: Main entry point. Initializes the Discord client, loads commands, sets up the database connection, registers commands, and starts the bot.
+*   **`commands/`**: Contains individual JavaScript files for each slash command (`set.js`, `stats.js`, etc.). Each file exports a `data` object (command definition) and an `execute` function (command logic).
+*   **`utils/`**: Contains shared utility modules.
+    *   `permissions.js`: Defines role IDs, permission levels, and the `checkPermission` function used by commands.
+*   **`data/`**: Stores persistent data. By default, contains `stats.db`. This directory **must exist** and is mounted into the Docker container.
+*   **`.env`**: Stores environment variables, primarily `DISCORD_TOKEN` and optionally `DB_FILE`. **Crucially important, must not be committed to Git.**
+*   **`Dockerfile`**: Defines the Docker image build process.
+*   **`.dockerignore`**: Specifies files/directories to exclude from the Docker image.
+*   **`.gitignore`**: Specifies files/directories to exclude from Git tracking.
+*   **`package.json` / `package-lock.json`**: Node.js project and dependency management.
+
+### Key Concepts & Notes
+
+*   **Permissions:** Command access is controlled by checking user roles against predefined levels in `utils/permissions.js`. Ensure the Role IDs in this file are correct for your target server.
+*   **Environment Variables:** The bot relies heavily on the `DISCORD_TOKEN` environment variable set in the `.env` file. When running via Docker, this file is passed using the `--env-file` flag.
+*   **Database:** An SQLite database (`stats.db` located in the `data/` directory) is used for persistence. This file is created automatically if it doesn't exist. For Docker deployments, the `data/` directory is mounted as a volume (`-v`) to ensure data isn't lost when the container is replaced.
+*   **Dependencies:** Key dependencies include `discord.js` (v14+), `sqlite3`, `dotenv`, and `luxon`.
+*   **Command Loading:** Commands are loaded dynamically from the `commands/` directory in `index.js`.
+*   **Error Handling:** Basic error handling is implemented (logging to console, sending ephemeral replies), but could be enhanced.
+*   **Async/Await:** The codebase uses `async/await` extensively due to the asynchronous nature of Discord interactions and database queries.
+
+---
+
 ## Discord Setup
 
 1.  **Create a Bot Application:** Go to <https://discord.com/developers/applications>.
