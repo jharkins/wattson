@@ -30,13 +30,14 @@ module.exports = {
         console.log(`[Stats] Authorized access for user ${interaction.user.tag}`);
 
         try {
-            const todayDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
             // --- Calculate Summary Stats ---
-            // Update query to use DATE() function on set_date column
+            // Change dailySets query to count sets LOGGED today using created_at
             const dailySets = await query(
-                `SELECT COUNT(*) AS n FROM events WHERE type = 'set' AND DATE(set_date) = ?`,
-                [todayDate]
+                `SELECT COUNT(*) AS n 
+                 FROM events 
+                 WHERE type = 'set' 
+                   AND created_at >= DATE('now','localtime','start of day') 
+                   AND created_at <= DATETIME('now','localtime')`
             ).then(rows => rows[0]?.n || 0);
 
             // Weekly/Monthly Closes/Installs still use created_at (when they were logged)
@@ -94,8 +95,8 @@ ${leaderboardString}
 ---`) // Add emojis to leaderboard header
                 .setColor(0x00AE86)
                 .addFields(
-                    // Add emojis to field names
-                    { name: 'Sets Sched. Today 📝', value: String(dailySets), inline: true }, 
+                    // Update field name to reflect the change
+                    { name: 'Sets Logged Today 📝', value: String(dailySets), inline: true }, 
                     { name: 'Closes (7d) 💣', value: String(weeklyCloses), inline: true },
                     { name: 'Closes (MTD) 🥵', value: String(monthlyCloses), inline: true }, 
                     { name: 'Installs (MTD) ✨', value: String(monthlyInstalls), inline: true }
